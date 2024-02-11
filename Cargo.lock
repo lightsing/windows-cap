@@ -418,7 +418,7 @@ dependencies = [
 
 [[package]]
 name = "windows-cap"
-version = "0.1.0"
+version = "0.1.2"
 dependencies = [
  "log",
  "pretty_env_logger",
