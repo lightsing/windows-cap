@@ -1,6 +1,7 @@
 use binding::{drop_manually_allocated_pcwstr, new_pcwstr_from_str};
 use d3d::*;
 use error::Error;
+use pyo3::prelude::*;
 use windows::{
     core::{IInspectable, PCWSTR},
     Foundation::TypedEventHandler,
@@ -19,7 +20,6 @@ use windows::{
         },
     },
 };
-use pyo3::prelude::*;
 
 mod binding;
 mod d3d;
@@ -27,23 +27,18 @@ mod error;
 
 type Result<T, E = Error> = std::result::Result<T, E>;
 
-pub(crate) struct Frame {
-    frame: Direct3D11CaptureFrame,
-    size: SizeInt32,
-}
-
 #[pyclass]
 pub struct WindowCapture {
     last_size: SizeInt32,
     client_size: SizeInt32,
-    rx: std::sync::mpsc::Receiver<Frame>,
+    rx: std::sync::mpsc::Receiver<Direct3D11CaptureFrame>,
     session: GraphicsCaptureSession,
     frame_pool: Direct3D11CaptureFramePool,
     _capture_item: GraphicsCaptureItem,
     device: IDirect3DDevice,
     d3d_context: ID3D11DeviceContext,
     d3d_device: ID3D11Device,
-    _hwnd: HWND,
+    hwnd: HWND,
     buffer: Vec<u8>,
 }
 
@@ -88,34 +83,31 @@ impl WindowCapture {
 
     /// Get the next frame from the capture session
     pub fn next<'a>(&mut self) -> PyResult<&[u8]> {
-        self.buffer.clear();
         let frame = self.rx.recv().unwrap();
-        let size = frame.frame.ContentSize().map_err(Error::from)?;
+        let size = frame.ContentSize().map_err(Error::from)?;
         if size != self.last_size {
             self.last_size = size;
-            self.frame_pool.Recreate(
-                &self.device,
-                DirectXPixelFormat::B8G8R8A8UIntNormalized,
-                1,
-                size,
-            ).map_err(Error::from)?;
+            self.frame_pool
+                .Recreate(
+                    &self.device,
+                    DirectXPixelFormat::B8G8R8A8UIntNormalized,
+                    1,
+                    size,
+                )
+                .map_err(Error::from)?;
+            self.client_size = get_client_rect(self.hwnd);
         }
 
-        if self.client_size != frame.size {
-            self.client_size = frame.size;
-            self.buffer.reserve(self.client_size.Width as usize * self.client_size.Height as usize * 4);
-        }
-
-        let texture = create_dx_texture_2d(&self.d3d_device, &self.d3d_context, &frame.frame)?;
+        let texture = create_dx_texture_2d(&self.d3d_device, &self.d3d_context, &frame)?;
         get_bits_from_texture_2d(
-            &self.d3d_context, 
+            &self.d3d_context,
             &texture,
-            frame.size.Width as usize,
-            frame.size.Height as usize,
+            self.client_size.Width as usize,
+            self.client_size.Height as usize,
             &mut self.buffer,
         )?;
         drop(texture);
-        frame.frame.Close().map_err(Error::from)?;
+        frame.Close().map_err(Error::from)?;
 
         Ok(&self.buffer)
     }
@@ -152,12 +144,8 @@ impl WindowCapture {
             move |sender: &Option<Direct3D11CaptureFramePool>, _: &Option<IInspectable>| {
                 let frame_pool = sender.as_ref().unwrap();
                 let frame = frame_pool.TryGetNextFrame()?;
-                
-                tx.send(Frame {
-                    frame,
-                    size: get_client_rect(hwnd)
-                })
-                .unwrap();
+
+                tx.send(frame).unwrap();
                 Ok(())
             },
         );
@@ -175,8 +163,10 @@ impl WindowCapture {
             device,
             d3d_context,
             d3d_device,
-            _hwnd: hwnd,
-            buffer: Vec::with_capacity(client_size.Width as usize * client_size.Height as usize * 4),
+            hwnd,
+            buffer: Vec::with_capacity(
+                client_size.Width as usize * client_size.Height as usize * 4,
+            ),
         })
     }
 }
@@ -197,5 +187,16 @@ fn get_client_rect(hwnd: HWND) -> SizeInt32 {
     let height = client_rect.bottom - client_rect.top;
     let width_dpi = ((width * dpi) as f32 / 96.0) as i32;
     let height_dpi = ((height * dpi) as f32 / 96.0) as i32;
-    SizeInt32 { Width: width_dpi, Height: height_dpi }
+    log::trace!(
+        "dpi: {}, width: {}, height: {}, width_dpi: {}, height_dpi: {}",
+        dpi,
+        width,
+        height,
+        width_dpi,
+        height_dpi
+    );
+    SizeInt32 {
+        Width: width_dpi,
+        Height: height_dpi,
+    }
 }

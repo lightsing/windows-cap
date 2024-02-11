@@ -8,6 +8,8 @@ name = "windows_cap"
 crate-type = ["cdylib"]
 
 [dependencies]
+log = "0.4.20"
+pretty_env_logger = "0.5.0"
 pyo3 = "0.20"
 thiserror = "1.0"
 

@@ -93,10 +93,23 @@ pub fn get_bits_from_texture_2d(
     height: usize,
     buffer: &mut Vec<u8>,
 ) -> Result<()> {
+    buffer.clear();
     let mut desc = D3D11_TEXTURE2D_DESC::default();
     unsafe {
         texture.GetDesc(&mut desc as *mut _);
     }
+    assert!(
+        desc.Width as usize >= width,
+        "texture width: {}, requested width: {}",
+        desc.Width,
+        width
+    );
+    assert!(
+        desc.Height as usize >= height,
+        "texture height: {}, requested height: {}",
+        desc.Height,
+        height
+    );
 
     let resource: ID3D11Resource = texture.cast()?;
     let mut mapped: D3D11_MAPPED_SUBRESOURCE = D3D11_MAPPED_SUBRESOURCE::default();
@@ -121,12 +134,22 @@ pub fn get_bits_from_texture_2d(
     let bytes_per_pixel = 4;
     let margin = desc.Width as usize - width;
     let col_offset = (margin / 2) * bytes_per_pixel as usize;
+    let size = width * height * bytes_per_pixel;
+    log::trace!(
+        "desc.Width: {} desc.Height: {} width: {}, height: {}, margin: {}, col_offset: {}",
+        desc.Width,
+        desc.Height,
+        width,
+        height,
+        margin,
+        col_offset
+    );
     for row in (desc.Height as usize - height)..desc.Height as usize {
         let slice_begin = (row * mapped.RowPitch as usize) as usize + col_offset;
         let slice_end = slice_begin + (width * bytes_per_pixel) as usize;
         buffer.extend_from_slice(&slice[slice_begin..slice_end]);
     }
-    assert!(buffer.len() == width * height * bytes_per_pixel);
+    assert_eq!(buffer.len(), size, "Buffer size mismatch");
 
     unsafe {
         d3d_context.Unmap(Some(&resource), 0);

@@ -1,4 +1,4 @@
-use pyo3::{prelude::*, create_exception};
+use pyo3::{create_exception, prelude::*};
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
@@ -7,7 +7,6 @@ pub enum Error {
     #[error("Window not found")]
     WindowNotFound,
 }
-
 
 create_exception!(module, WindowsCapError, pyo3::exceptions::PyException);
 
